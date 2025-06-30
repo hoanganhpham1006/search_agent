@@ -1,0 +1,11 @@
+question_id,question,category
+q1,What are the latest breakthroughs in quantum computing in 2024?,technology
+q2,Compare the environmental impact of electric vehicles vs hydrogen fuel cells,environment
+q3,What are the current best practices for implementing RAG systems?,ai
+q4,Explain the differences between BERT GPT and T5 architectures,ai
+q5,What are the most promising applications of synthetic biology?,science
+q6,How does blockchain technology ensure security and immutability?,technology
+q7,What are the health benefits and risks of intermittent fasting?,health
+q8,Explain the concept of dark matter and recent discoveries,physics
+q9,What are the main causes and solutions for ocean acidification?,environment
+q10,How do mRNA vaccines work and what are their advantages?,medicine
