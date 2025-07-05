@@ -9,6 +9,8 @@ env/
 venv/
 ENV/
 .venv
+.env
+_benchmark/
 
 # Project specific
 CLAUDE.md

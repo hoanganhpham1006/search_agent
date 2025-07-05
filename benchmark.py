@@ -61,9 +61,11 @@ def format_web_search_response(response_json: str) -> str:
             for idx, result in enumerate(data['results']):
                 url = result.get('url', 'N/A')
                 title = result.get('metadata', {}).get('paper_title', 'No title')
+                preview = result.get('preview', 'No preview available')
                 formatted_lines.append(f"Index: {idx}")
                 formatted_lines.append(f"URL: {url}")
                 formatted_lines.append(f"Title: {title}")
+                formatted_lines.append(f"Preview: {preview}")
                 if idx < len(data['results']) - 1:
                     formatted_lines.append("")  # Empty line between results
             return "\n".join(formatted_lines)
@@ -191,7 +193,7 @@ class BenchmarkAgent(SearchAgent):
         
         # Initialize conversation with benchmark system prompt
         messages = [{'role': 'system', 'content': BENCHMARK_SYSTEM_PROMPT}]
-        messages.append({'role': 'user', 'content': f"{user_query}\n\nBefore using any tools, please first think out loud about what information you need and what your search strategy should be."})
+        messages.append({'role': 'user', 'content': f"{user_query}"})
         self.conversation_history = messages.copy()
         
         self.trace.append({
@@ -333,13 +335,15 @@ class BenchmarkAgent(SearchAgent):
                         # Temporarily override the agent's search URL
                         function_response = self._web_search_with_port(
                             query=function_args.get('query'),
-                            number_results=function_args.get('number_results', 1),
+                            top_k=function_args.get('top_k', 1),
+                            preview_char=function_args.get('preview_char', 256),
                             api_url=self.search_api_url
                         )
                     else:
                         function_response = function_to_call(
                             query=function_args.get('query'),
-                            number_results=function_args.get('number_results', 1)
+                            top_k=function_args.get('top_k', 1),
+                            preview_char=function_args.get('preview_char', 256),
                         )
                     self.search_history.append({
                         'type': 'search',
@@ -433,12 +437,13 @@ class BenchmarkAgent(SearchAgent):
         self.conversation_history = messages
         return final_response
     
-    def _web_search_with_port(self, query: str, number_results: int = 3, api_url: str = None):
+    def _web_search_with_port(self, query: str, top_k: int = 3, preview_char: int = 256, api_url: str = None):
         """Web search using specific API port."""
         url = api_url or f'http://{BENCHMARK_BASE_HOST}:{get_next_port()}/search'
         payload = {
             'query': query,
-            'number_results': number_results
+            'top_k': top_k,
+            'preview_char': preview_char
         }
         
         try:
@@ -546,6 +551,11 @@ def run_benchmark(questions_file: str, output_file: str = None, save_traces: boo
         if 'question' not in questions_df.columns:
             raise ValueError("CSV must have a 'question' column")
         questions = questions_df.to_dict('records')
+    if questions_file.endswith('.parquet'):
+        questions_df = pd.read_parquet(questions_file)
+        if 'question' not in questions_df.columns:
+            raise ValueError("Parquet must have a 'question' column")
+        questions = questions_df.to_dict('records')
     elif questions_file.endswith('.json'):
         with open(questions_file, 'r') as f:
             questions = json.load(f)
@@ -572,6 +582,15 @@ def run_benchmark(questions_file: str, output_file: str = None, save_traces: boo
     start_time = time.time()
     results = []
     
+    # Prepare output file for JSON
+    if output_file:
+        # For JSON output, start with array opening
+        json_file = open(output_file, 'w')
+        json_file.write("[\n")
+        json_file.flush()
+        first_result = True
+        
+    
     print(f"\nProcessing {len(questions)} questions with {num_workers} workers...")
     
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
@@ -585,6 +604,15 @@ def run_benchmark(questions_file: str, output_file: str = None, save_traces: boo
                 result = future.result()
                 results.append(result)
                 completed += 1
+                
+                # Write result immediately to JSON file
+                if output_file:
+                    if not first_result:
+                        json_file.write(",\n")
+                    json.dump(result, json_file, indent=2)
+                    json_file.flush()
+                    first_result = False
+                    
                 
                 # Progress update
                 elapsed = time.time() - start_time
@@ -609,7 +637,7 @@ def run_benchmark(questions_file: str, output_file: str = None, save_traces: boo
                 question_data, assigned_port, worker_id = args
                 print(f"[Worker {worker_id}:{assigned_port}] ✗ Exception: {str(e)}")
                 # Add a failed result
-                results.append({
+                result = {
                     'question_id': question_data.get('question_id', f'q{worker_id}'),
                     'question': question_data.get('question'),
                     'final_answer': None,
@@ -625,28 +653,54 @@ def run_benchmark(questions_file: str, output_file: str = None, save_traces: boo
                     'search_history': [],
                     'worker_id': worker_id,
                     'assigned_port': assigned_port
-                })
+                }
+                results.append(result)
+                completed += 1
+                
+                # Write failed result immediately to JSON
+                if output_file:
+                    if not first_result:
+                        json_file.write(",\n")
+                    json.dump(result, json_file, indent=2)
+                    json_file.flush()
+                    first_result = False
+                    
     
     total_time = time.time() - start_time
     print(f"\n🎉 Completed {len(questions)} questions in {total_time:.2f}s ({total_time/len(questions):.2f}s avg)")
     
-    # Generate and save reports
-    report = generate_report(results)
-    
+    # Close JSON array
     if output_file:
-        # Save text report
-        with open(output_file, 'w') as f:
-            f.write(report)
-        print(f"\nReport saved to: {output_file}")
+        json_file.write("\n]\n")
+        json_file.close()
+        print(f"\nResults saved to: {output_file}")
+    
+    # Print summary to console
+    successful = sum(1 for r in results if r['success'])
+    failed = len(results) - successful
+    
+    print(f"\nSUMMARY")
+    print("-" * 40)
+    print(f"Total questions: {len(results)}")
+    print(f"Successful: {successful} ({successful/len(results)*100:.1f}%)")
+    print(f"Failed: {failed} ({failed/len(results)*100:.1f}%)")
+    
+    if successful > 0:
+        success_results = [r for r in results if r['success']]
+        avg_time = sum(r['response_time'] for r in success_results) / len(success_results)
+        avg_search = sum(r['num_search_calls'] for r in success_results) / len(success_results)
+        avg_visit = sum(r['num_visit_calls'] for r in success_results) / len(success_results)
+        avg_thinking = sum(r['thinking_entries'] for r in success_results) / len(success_results)
+        avg_turns = sum(r['total_turns'] for r in success_results) / len(success_results)
         
-        # Save detailed JSON results if traces are included
-        if save_traces:
-            json_file = output_file.replace('.txt', DEFAULT_OUTPUT_SUFFIX)
-            with open(json_file, 'w') as f:
-                json.dump(results, f, indent=2)
-            print(f"Detailed results saved to: {json_file}")
-    else:
-        print(report)
+        print(f"\nPerformance Metrics:")
+        print(f"Average response time: {avg_time:.2f}s")
+        print(f"Average search calls: {avg_search:.2f}")
+        print(f"Average visit calls: {avg_visit:.2f}")
+        print(f"Average thinking entries: {avg_thinking:.2f}")
+        print(f"Average turns: {avg_turns:.2f}")
+    
+    print(f"\nTotal benchmark time: {total_time:.2f}s ({total_time/len(questions):.2f}s avg)")
     
     return results
 
@@ -770,7 +824,7 @@ def generate_report(results: List[Dict[str, Any]]) -> str:
 def main():
     parser = argparse.ArgumentParser(description='Benchmark the Search Agent with full trace capture and multiprocessing')
     parser.add_argument('questions_file', help='Path to questions file (CSV or JSON)')
-    parser.add_argument('-o', '--output', help='Output file for report (optional)')
+    parser.add_argument('-o', '--output', help='Output JSON file for results (optional)')
     parser.add_argument('--no-traces', action='store_true', help='Disable trace capture to save space')
     parser.add_argument('-w', '--workers', type=int, default=DEFAULT_NUM_WORKERS, 
                        help=f'Number of worker processes (default: {DEFAULT_NUM_WORKERS}, range: {MIN_WORKERS}-{MAX_WORKERS})')

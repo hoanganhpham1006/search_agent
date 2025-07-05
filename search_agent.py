@@ -22,9 +22,11 @@ def format_web_search_response(response_json: str) -> str:
             for idx, result in enumerate(data['results']):
                 url = result.get('url', 'N/A')
                 title = result.get('metadata', {}).get('paper_title', 'No title')
+                preview = result.get('preview', 'No preview available')
                 formatted_lines.append(f"Index: {idx}")
                 formatted_lines.append(f"URL: {url}")
                 formatted_lines.append(f"Title: {title}")
+                formatted_lines.append(f"Preview: {preview}")
                 if idx < len(data['results']) - 1:
                     formatted_lines.append("")  # Empty line between results
             return "\n".join(formatted_lines)
@@ -46,23 +48,25 @@ def format_web_visit_response(response_json: str) -> str:
         return response_json
 
 
-def web_search(query: str, number_results: int = DEFAULT_NUM_RESULTS) -> str:
+def web_search(query: str, top_k: int = DEFAULT_NUM_RESULTS, preview_char: int = 256) -> str:
     """
     Call the search API to search the web.
     
     Args:
         query: Search query string
-        number_results: Number of results to return
-        
+        top_k: Number of results to return
+        preview_char: Number of characters to include in the preview
+
     Returns:
-        JSON string containing search results with 'url' and 'title' fields
+        JSON string containing search results with 'url', 'title', and 'preview' fields
     """
     try:
         response = requests.post(
             SEARCH_API_URL,
             json={
                 'query': query,
-                'number_results': number_results
+                'top_k': top_k,
+                'preview_char': preview_char
             },
             timeout=SEARCH_TIMEOUT
         )
@@ -85,6 +89,9 @@ def web_visit(url: str) -> str:
         JSON string containing the full document content
     """
     try:
+        if 'wiki/' in url:
+            # Special handling for Wikipedia URLs
+            url = url.replace('_', '%20')  # Preserve original encoding
         response = requests.post(
             VISIT_API_URL,
             json={'url': url},
@@ -129,10 +136,15 @@ class SearchAgent:
                             'type': 'string',
                             'description': 'The search query'
                         },
-                        'number_results': {
+                        'top_k': {
                             'type': 'integer',
-                            'description': 'Number of results to return',
+                            'description': 'Number of search results to return',
                             'default': DEFAULT_NUM_RESULTS
+                        },
+                        'preview_char': {
+                            'type': 'integer',
+                            'description': 'Number of characters to include in the preview of each result',
+                            'default': 256
                         }
                     },
                     'required': ['query']
@@ -293,7 +305,8 @@ class SearchAgent:
                 if function_name == 'web_search':
                     function_response = function_to_call(
                         query=function_args.get('query'),
-                        number_results=function_args.get('number_results', 1)
+                        top_k=function_args.get('top_k', DEFAULT_NUM_RESULTS),
+                        preview_char=function_args.get('preview_char', 256)
                     )
                     self.search_history.append({
                         'type': 'search',

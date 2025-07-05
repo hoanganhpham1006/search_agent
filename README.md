@@ -75,8 +75,8 @@ MODEL_CONFIG = {
 
 ### API Endpoints
 ```python
-SEARCH_API_URL = 'http://192.168.0.14:10000/search'
-VISIT_API_URL = 'http://192.168.0.14:10000/visit'
+SEARCH_API_URL = 'http://192.168.0.8:10000/search'
+VISIT_API_URL = 'http://192.168.0.8:10000/visit'
 ```
 
 ### Search Agent Settings
