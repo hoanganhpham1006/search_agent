@@ -2,7 +2,7 @@
 
 # Model Configuration
 MODEL_CONFIG = {
-    'model': '/mnt/sharefs/tuenv/model_hub/qwen3/Qwen3-235B-A22B',  # Adjust model name as needed
+    'model': '/mnt/sharefs/hoanganh/ckpts/qwen3_4b_tools/global_step_2000/global_step_2000/hf_ckpt',  # Adjust model name as needed
     'model_server': 'http://localhost:8000/v1',  # Local sglang/vLLM server
     'api_key': 'EMPTY',
     'generate_cfg': {
