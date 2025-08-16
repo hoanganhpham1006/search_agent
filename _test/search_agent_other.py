@@ -184,8 +184,7 @@ def web_visit(url: str) -> dict:
             "url": url,
             "includeMarkdown": True
         })
-        headers = {
-            'Content-Type': 'application/json'
+        header = {
         }
 
         conn.request("POST", "/", payload, headers)
@@ -302,7 +301,7 @@ class SearchAgent:
         """
         # Initialize conversation with system prompt and user query
         messages = self._add_system_prompt()
-        # user_query += '\n\nPlease reason step-by-step, and put your final answer within \\boxed{}.'
+        user_query += '\n\nPlease reason step-by-step, and put your final answer within \\boxed{}.'
         messages.append({'role': 'user', 'content': user_query})
         self.conversation_history = messages.copy()
         
@@ -318,9 +317,9 @@ class SearchAgent:
             response = self.llm.chat(
                 messages=messages,
                 functions=self.functions,
+                # functions=[{"type": "function", "function": x} for x in self.functions],
                 stream=False
             )
-            # import pdb;pdb.set_trace()
             if not response:
                 break
                 
@@ -339,7 +338,7 @@ class SearchAgent:
                         if item.get('content') and not regular_content:
                             regular_content = item.get('content')
                 # Use the last message as the main response
-                last_response = {'role': 'assistant', 'content': f'<think>{reasoning_content}</think>{regular_content}'}
+                last_response = response[-1]
             else:
                 # For function calls or other formats
                 last_response = response
@@ -350,26 +349,6 @@ class SearchAgent:
                     response_dict = getattr(last_response, '__dict__', {})
                     reasoning_content = response_dict.get('reasoning_content')
                     regular_content = response_dict.get('content')
-            
-            # Check if we have reasoning content AND regular content - if not, retry this turn
-            if not reasoning_content or not reasoning_content.strip() or not regular_content or not regular_content.strip():
-                print("\n[No reasoning content or empty content detected - retrying turn to enforce proper response]")
-                if len(messages) == 2:
-                    messages[-1]['content'] += '\n\n**Important**: DO NOT ask me anything else, you must **REASONING** about the question, then **USE** web_search, web_visit or **PROVIDE** the final answer!'
-                # Add a retry counter to prevent infinite loops
-                retry_key = "reasoning_content_retries"  # Fixed key, not dependent on turn
-                if not hasattr(self, '_retry_counts'):
-                    self._retry_counts = {}
-                self._retry_counts[retry_key] = self._retry_counts.get(retry_key, 0) + 1
-                
-                if self._retry_counts[retry_key] > 10:
-                    print("\n[Max retries reached, proceeding with incomplete response]")
-                    # Reset retry counter and continue
-                    self._retry_counts[retry_key] = 0
-                else:
-                    # Don't add this response to messages, just continue to retry
-                    continue
-            
             # Now we have valid content, increment turn counter
             turn += 1
             print(f"\n--- Turn {turn} ---")
@@ -541,32 +520,32 @@ class SearchAgent:
                     final_response = last_response
                 
                 # Check for unreliable answer: zero web_search OR zero web_visit before final answer
-                min_web_search = 1  # Configurable threshold
-                min_web_visit = 0   # Configurable threshold
+                # min_web_search = 1  # Configurable threshold
+                # min_web_visit = 0   # Configurable threshold
                 
-                if self.web_search_count < min_web_search or self.web_visit_count < min_web_visit:
-                    print(f"\n[UNRELIABLE ANSWER DETECTED: web_search_count={self.web_search_count} (min={min_web_search}), web_visit_count={self.web_visit_count} (min={min_web_visit}) - Re-running turn]")
+                # if self.web_search_count < min_web_search or self.web_visit_count < min_web_visit:
+                #     print(f"\n[UNRELIABLE ANSWER DETECTED: web_search_count={self.web_search_count} (min={min_web_search}), web_visit_count={self.web_visit_count} (min={min_web_visit}) - Re-running turn]")
                     
-                    # Add a retry counter to prevent infinite loops
-                    reliability_retry_key = "reliability_retries"  # Fixed key, not dependent on turn
-                    if not hasattr(self, '_reliability_retry_counts'):
-                        self._reliability_retry_counts = {}
-                    self._reliability_retry_counts[reliability_retry_key] = self._reliability_retry_counts.get(reliability_retry_key, 0) + 1
+                #     # Add a retry counter to prevent infinite loops
+                #     reliability_retry_key = "reliability_retries"  # Fixed key, not dependent on turn
+                #     if not hasattr(self, '_reliability_retry_counts'):
+                #         self._reliability_retry_counts = {}
+                #     self._reliability_retry_counts[reliability_retry_key] = self._reliability_retry_counts.get(reliability_retry_key, 0) + 1
                     
-                    if self._reliability_retry_counts[reliability_retry_key] > 10:
-                        print(f"\n[Max reliability retries reached ({self._reliability_retry_counts[reliability_retry_key]}), accepting potentially unreliable answer]")
-                        # Reset retry counter and continue with final answer
-                        self._reliability_retry_counts[reliability_retry_key] = 0
-                    else:
-                        # Remove the last assistant message and continue to retry the turn
-                        messages.pop()  # Remove the unreliable response
-                        # Add a guidance message to encourage proper tool usage
-                        # guidance_msg = {
-                        #     'role': 'user', 
-                        #     'content': f'Please ensure you perform adequate research before providing a final answer. You must use web_search (called {self.web_search_count} times, minimum {min_web_search}) and web_visit (called {self.web_visit_count} times, minimum {min_web_visit}) to gather reliable information.'
-                        # }
-                        # messages.append(guidance_msg)
-                        continue  # Retry this turn
+                #     if self._reliability_retry_counts[reliability_retry_key] > 10:
+                #         print(f"\n[Max reliability retries reached ({self._reliability_retry_counts[reliability_retry_key]}), accepting potentially unreliable answer]")
+                #         # Reset retry counter and continue with final answer
+                #         self._reliability_retry_counts[reliability_retry_key] = 0
+                #     else:
+                #         # Remove the last assistant message and continue to retry the turn
+                #         messages.pop()  # Remove the unreliable response
+                #         # Add a guidance message to encourage proper tool usage
+                #         # guidance_msg = {
+                #         #     'role': 'user', 
+                #         #     'content': f'Please ensure you perform adequate research before providing a final answer. You must use web_search (called {self.web_search_count} times, minimum {min_web_search}) and web_visit (called {self.web_visit_count} times, minimum {min_web_visit}) to gather reliable information.'
+                #         # }
+                #         # messages.append(guidance_msg)
+                #         continue  # Retry this turn
                 
                 # No function call means final answer (and it's reliable)
                 print("\n[Model provided final response]")
